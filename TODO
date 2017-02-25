@@ -1,9 +1,8 @@
-requirements.txt
-setup.py
-
 put configfile in /etc?
 run as root? drop privileges?
 
 use 1 docker instance for all connections, but shut down docker on the last connection
 
 no need to have a base port for each docker instance
+
+
