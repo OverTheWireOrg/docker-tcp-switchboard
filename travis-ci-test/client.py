@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 from twisted.internet.protocol import Protocol, ClientFactory
 from twisted.internet import reactor
