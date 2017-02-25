@@ -3,6 +3,7 @@ sudo: required
 services:
 - docker
 before_install:
+- apt-get update && apt-get -y install python-twisted
 - docker build -t echoserv -f travis-ci-test/Dockerfile.echoserv travis-ci-test
 - docker build -t upperserv -f travis-ci-test/Dockerfile.upperserv travis-ci-test
 
