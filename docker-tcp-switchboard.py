@@ -127,9 +127,13 @@ class DockerProxyFactory(ProxyFactory):
 
 if __name__ == "__main__":
 
-    import configparser, pprint
+    import configparser, pprint, sys
     config = configparser.ConfigParser()
-    config.read('config.ini')
+    config.read(sys.argv[1] if len(sys.argv) > 1 else '/etc/docker-tcp-switchboard.ini')
+
+    if "global" not in config.sections():
+        print("invalid configfile")
+        sys.exit(1)
 
     for imagesection in [n for n in config.sections() if n != "global"]:
         dports = DockerPorts(
