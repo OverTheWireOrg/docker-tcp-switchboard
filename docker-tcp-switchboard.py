@@ -45,6 +45,7 @@ class DockerInstance():
         (rc, out) = subprocess.getstatusoutput(cmd.format(self.port))
         if rc != 0:
             print("Failed to start instance for port {}".format(self.port))
+            print("rc={}, out={}".format(rc, out))
             return None
 
         self.instanceid = out.strip()
