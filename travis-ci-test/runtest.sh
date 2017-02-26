@@ -8,6 +8,8 @@ function cleanup {
 }
 trap cleanup EXIT
 
+sleep 2 # give time to startup
+
 ./client.py
 
 
