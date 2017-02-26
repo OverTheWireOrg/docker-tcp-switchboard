@@ -42,12 +42,12 @@ class DockerInstance():
 
     def start(self):
         cmd = "docker run --detach --rm {}".format(self.dockerparams)
-        process = subprocess.run(cmd.format(self.port).split(" "), check=True, stdout=subprocess.PIPE)
-        if process.returncode != 0:
+        (rc, out) = subprocess.getstatusoutput(cmd.format(self.port))
+        if rc != 0:
             print("Failed to start instance for port {}".format(self.port))
             return None
 
-        self.instanceid = process.stdout.decode("utf-8").strip()
+        self.instanceid = out.strip()
         print("Started instance on port {} with ID {}".format(self.port, self.instanceid))
         if self.__waitForOpenPort():
             return self.instanceid
@@ -57,8 +57,8 @@ class DockerInstance():
 
     def stop(self):
         print("Killing {} (port {})".format(self.instanceid, self.port))
-        process = subprocess.run(("docker kill {}".format(self.instanceid)).split(" "), check=True)
-        if process.returncode != 0:
+        (rc, _) = subprocess.getstatusoutput(("docker kill {}".format(self.instanceid)))
+        if rc != 0:
             print("Failed to stop instance for port {}, id {}".format(self.port, self.instanceid))
             return False
         return True
