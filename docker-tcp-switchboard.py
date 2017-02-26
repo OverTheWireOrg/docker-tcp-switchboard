@@ -9,7 +9,7 @@ import time, socket, subprocess
 # when requested, it allocated a new docker instance and returns it
 class DockerPorts():
     def __init__(self, baseport, amount, dockerparams):
-        print("Creating DockerPorts with {} instances starting at baseport {}, using \"docker run --detach --rm {}\"".format(amount, baseport, dockerparams))
+        print("Creating DockerPorts with {} instances starting at baseport {}, using \"docker run -detach {}\"".format(amount, baseport, dockerparams))
         self.dockerparams = dockerparams
         self.ports = dict([(port, None) for port in range(baseport, baseport + amount)])
 
@@ -41,7 +41,7 @@ class DockerInstance():
         self.instanceid = None
 
     def start(self):
-        cmd = "docker run --detach --rm {}".format(self.dockerparams)
+        cmd = "docker run --detach {}".format(self.dockerparams)
         (rc, out) = subprocess.getstatusoutput(cmd.format(self.port))
         if rc != 0:
             print("Failed to start instance for port {}".format(self.port))
@@ -57,10 +57,14 @@ class DockerInstance():
             return None
 
     def stop(self):
-        print("Killing {} (port {})".format(self.instanceid, self.port))
+        print("Killing and removing {} (port {})".format(self.instanceid, self.port))
         (rc, _) = subprocess.getstatusoutput(("docker kill {}".format(self.instanceid)))
         if rc != 0:
             print("Failed to stop instance for port {}, id {}".format(self.port, self.instanceid))
+            return False
+        (rc, _) = subprocess.getstatusoutput(("docker rm {}".format(self.instanceid)))
+        if rc != 0:
+            print("Failed to remove instance for port {}, id {}".format(self.port, self.instanceid))
             return False
         return True
 
