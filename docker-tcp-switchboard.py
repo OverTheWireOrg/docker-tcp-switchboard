@@ -129,15 +129,30 @@ class DockerProxyFactory(ProxyFactory):
     def __init__(self, dports):
         self.dports = dports
 
+def readConfig(fn):
+    import configparser, glob
+    # read the configfile.
+    config = configparser.ConfigParser()
+    print("Reading configfile from {}".format(fn))
+    config.read(fn)
+
+    # if there is a configdir directory, reread everything
+    if "global" in config.sections() and "splitconfigfiles" in config["global"]:
+        fnlist = [fn] + [f for f in glob.glob(config["global"]["splitconfigfiles"])]
+        print("Detected configdir directive. Reading configfiles from {}".format(fnlist))
+        config = configparser.ConfigParser()
+        config.read(fnlist)
+
+    return config
+
 
 if __name__ == "__main__":
+    import sys
 
-    import configparser, pprint, sys
-    config = configparser.ConfigParser()
-    config.read(sys.argv[1] if len(sys.argv) > 1 else '/etc/docker-tcp-switchboard.ini')
+    config = readConfig(sys.argv[1] if len(sys.argv) > 1 else '/etc/docker-tcp-switchboard.ini')
 
-    if "global" not in config.sections():
-        print("invalid configfile")
+    if len(config.sections()) == 0 or (len(config.sections()) == 1 and "global" in config.sections()):
+        print("invalid configfile. No docker images")
         sys.exit(1)
 
     for imagesection in [n for n in config.sections() if n != "global"]:
