@@ -149,7 +149,7 @@ def readConfig(fn):
 if __name__ == "__main__":
     import sys
 
-    config = readConfig(sys.argv[1] if len(sys.argv) > 1 else '/etc/docker-tcp-switchboard.ini')
+    config = readConfig(sys.argv[1] if len(sys.argv) > 1 else '/etc/docker-tcp-switchboard.conf')
 
     if len(config.sections()) == 0 or (len(config.sections()) == 1 and "global" in config.sections()):
         print("invalid configfile. No docker images")
