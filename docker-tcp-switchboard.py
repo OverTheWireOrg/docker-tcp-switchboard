@@ -10,34 +10,51 @@ import time, socket, subprocess
 
 class DockerPorts():
     def __init__(self):
-        self.instances = dict()
+        self.instancesByPort = dict()
+        self.instancesByName = dict()
         self.imageParams = dict()
 
-    def registerProxy(self, outerport, params):
-        self.imageParams[outerport] = params
+    def registerProxy(self, imagename, outerport, params, limit):
+        self.imageParams[outerport] = {
+            "imagename": imagename,
+            "params": params,
+            "limit": limit
+        }
 
     def create(self, outerport):
-        instance = DockerInstance(self.imageParams[outerport])
+        imagename = self.imageParams[outerport]["imagename"]
+        imagelimit = self.imageParams[outerport]["limit"]
+        if imagelimit > 0 and imagename in self.instancesByName:
+            icount = len(self.instancesByName[imagename])
+            if icount >= imagelimit:
+                print("Reached max count of {} (currently {}) for image {}".format(imagelimit, icount, imagename))
+                return None
+
+        instance = DockerInstance(imagename, self.imageParams[outerport]["params"])
         instance.start()
         p = instance.middleport
-        self.instances[p] = instance
-
-        #FIXME: limit containercount
+        self.instancesByPort[p] = instance
+        if imagename not in self.instancesByName:
+            self.instancesByName[imagename] = []
+        self.instancesByName[imagename] += [instance]
 
         return instance
 
     def destroy(self, instance):
         instance.stop()
         p = instance.middleport
-        self.instances[p] = None
+        n = instance.imagename
+        del self.instancesByPort[p]
+        self.instancesByName[n].remove(instance)
 
 # this class represents a single docker instance listening on a certain middleport.
 # The middleport is managed by the DockerPorts global object
 # After the docker container is started, we wait until the middleport becomes reachable
 # before returning
 class DockerInstance():
-    def __init__(self, dockerparams):
+    def __init__(self, imagename, dockerparams):
         self.dockerparams = dockerparams
+        self.imagename = imagename
         self.middleport = None
         self.instanceid = None
 
@@ -129,7 +146,7 @@ class DockerProxyServer(ProxyServer):
         global globalDockerPorts
         self.dockerinstance = globalDockerPorts.create(self.factory.outerport)
         if self.dockerinstance == None:
-            self.transport.write(bytearray("dockerports says no :(\r\n", "utf-8"))
+            self.transport.write(bytearray("Maximum connection-count reached. Try again later.\r\n", "utf-8"))
             self.transport.loseConnection()
         else:
             self.reactor.connectTCP("0.0.0.0", self.dockerinstance.middleport, client)
@@ -177,10 +194,9 @@ if __name__ == "__main__":
 
     for imagesection in [n for n in config.sections() if n != "global"]:
         outerport = int(config[imagesection]["outerport"])
-        globalDockerPorts.registerProxy(
-            outerport,
-            #amount=int(config[imagesection]["amount"]),
-            config[imagesection]["dockerparams"]
+        globalDockerPorts.registerProxy(imagesection, outerport,
+            config[imagesection]["dockerparams"],
+            int(config[imagesection]["limit"])
             )
 
         print("Listening on port {}".format(outerport))

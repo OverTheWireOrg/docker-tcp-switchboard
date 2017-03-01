@@ -44,7 +44,7 @@ class Echo(Protocol):
         successexpected += ['C: '+self.sendData+'\n', 'S: '+self.translationFunction(self.sendData+'\n')] * self.repeats
         successexpected += ['C: quit\n', 'S: Goodbye.\n'+self.translationFunction('quit\n'), 'C: quit\n', '?: Done']
 
-        fullexpected = ['S: dockerports says no :(\r\n', 'C: xxx\n', '?: Done']
+        fullexpected = ['S: Maximum connection-count reached. Try again later.\r\n', 'C: xxx\n', '?: Done']
 
         if successexpected == self.lines:
             return "success"
