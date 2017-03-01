@@ -7,49 +7,65 @@ import time, socket, subprocess
 
 # this is a global object that keeps track of the free ports
 # when requested, it allocated a new docker instance and returns it
-class DockerPorts():
-    def __init__(self, baseport, amount, dockerparams):
-        print("Creating DockerPorts with {} instances starting at baseport {}, using \"docker run -detach {}\"".format(amount, baseport, dockerparams))
-        self.dockerparams = dockerparams
-        self.ports = dict([(port, None) for port in range(baseport, baseport + amount)])
 
-    def create(self):
-        freeports = [p for p,v in self.ports.items() if v == None]
-        if len(freeports) > 0:
-            p = freeports[0]
-            instance = DockerInstance(p, self.dockerparams)
-            self.ports[p] = instance
-            instance.start()
-            return self.ports[p]
-        return None
+class DockerPorts():
+    def __init__(self):
+        self.instances = dict()
+        self.imageParams = dict()
+
+    def registerProxy(self, outerport, params):
+        self.imageParams[outerport] = params
+
+    def create(self, outerport):
+        instance = DockerInstance(self.imageParams[outerport])
+        instance.start()
+        p = instance.middleport
+        self.instances[p] = instance
+
+        #FIXME: limit containercount
+
+        return instance
 
     def destroy(self, instance):
         instance.stop()
-        p = instance.port
-        self.ports[p] = None
+        p = instance.middleport
+        self.instances[p] = None
 
-
-# this class represents a single docker instance listening on the given port.
-# The port is managed by the DockerPorts global object
-# After the docker container is started, we wait until the port becomes reachable
+# this class represents a single docker instance listening on a certain middleport.
+# The middleport is managed by the DockerPorts global object
+# After the docker container is started, we wait until the middleport becomes reachable
 # before returning
 class DockerInstance():
-    # wait until booted
-    def __init__(self, port, dockerparams):
+    def __init__(self, dockerparams):
         self.dockerparams = dockerparams
-        self.port = port
+        self.middleport = None
         self.instanceid = None
 
     def start(self):
         cmd = "docker run --detach {}".format(self.dockerparams)
-        (rc, out) = subprocess.getstatusoutput(cmd.format(self.port))
+        (rc, out) = subprocess.getstatusoutput(cmd.format(0))
         if rc != 0:
-            print("Failed to start instance for port {}".format(self.port))
+            print("Failed to start instance")
             print("rc={}, out={}".format(rc, out))
             return None
 
         self.instanceid = out.strip()
-        print("Started instance on port {} with ID {}".format(self.port, self.instanceid))
+        cmd = "docker port {}".format(self.instanceid)
+        (rc, out) = subprocess.getstatusoutput(cmd)
+        if rc != 0:
+            print("Failed to get port information from {}".format(self.instanceid))
+            print("rc={}, out={}".format(rc, out))
+            return None
+
+        try:
+            # try to parse something like: "22/tcp -> 0.0.0.0:12345" to extract 12345
+            self.middleport = int(out.strip().split(" ")[2].split(":")[1])
+        except:
+            print("Failed to parse port from returned data for instanceid {}: {}".format(self.instanceid, out))
+            self.stop()
+            return None
+
+        print("Started instance on middleport {} with ID {}".format(self.middleport, self.instanceid))
         if self.__waitForOpenPort():
             return self.instanceid
         else:
@@ -57,14 +73,14 @@ class DockerInstance():
             return None
 
     def stop(self):
-        print("Killing and removing {} (port {})".format(self.instanceid, self.port))
+        print("Killing and removing {} (middleport {})".format(self.instanceid, self.middleport))
         (rc, _) = subprocess.getstatusoutput(("docker kill {}".format(self.instanceid)))
         if rc != 0:
-            print("Failed to stop instance for port {}, id {}".format(self.port, self.instanceid))
+            print("Failed to stop instance for middleport {}, id {}".format(self.middleport, self.instanceid))
             return False
         (rc, _) = subprocess.getstatusoutput(("docker rm {}".format(self.instanceid)))
         if rc != 0:
-            print("Failed to remove instance for port {}, id {}".format(self.port, self.instanceid))
+            print("Failed to remove instance for middleport {}, id {}".format(self.middleport, self.instanceid))
             return False
         return True
 
@@ -72,7 +88,7 @@ class DockerInstance():
         s = socket.socket()
         ret = False
         try:
-            s.connect(("0.0.0.0", self.port))
+            s.connect(("0.0.0.0", self.middleport))
             # just connecting is not enough, we should try to read and get at least 1 byte back
             # since the daemon in the container might not have started accepting connections yet, while docker-proxy does
             s.settimeout(readtimeout)
@@ -110,24 +126,26 @@ class DockerProxyServer(ProxyServer):
         if self.reactor is None:
             from twisted.internet import reactor
             self.reactor = reactor
-        self.dockerinstance = self.factory.dports.create()
+        global globalDockerPorts
+        self.dockerinstance = globalDockerPorts.create(self.factory.outerport)
         if self.dockerinstance == None:
             self.transport.write(bytearray("dockerports says no :(\r\n", "utf-8"))
             self.transport.loseConnection()
         else:
-            self.reactor.connectTCP("0.0.0.0", self.dockerinstance.port, client)
+            self.reactor.connectTCP("0.0.0.0", self.dockerinstance.middleport, client)
 
     def connectionLost(self, reason):
         if self.dockerinstance != None:
-            self.factory.dports.destroy(self.dockerinstance)
+            global globalDockerPorts
+            globalDockerPorts.destroy(self.dockerinstance)
         self.dockerinstance = None
         super().connectionLost(reason)
 
 class DockerProxyFactory(ProxyFactory):
     protocol = DockerProxyServer
 
-    def __init__(self, dports):
-        self.dports = dports
+    def __init__(self, outerport):
+        self.outerport = outerport
 
 def readConfig(fn):
     import configparser, glob
@@ -155,16 +173,18 @@ if __name__ == "__main__":
         print("invalid configfile. No docker images")
         sys.exit(1)
 
+    globalDockerPorts = DockerPorts()
+
     for imagesection in [n for n in config.sections() if n != "global"]:
-        dports = DockerPorts(
-            baseport=int(config[imagesection]["baseport"]),
-            amount=int(config[imagesection]["amount"]),
-            dockerparams=config[imagesection]["dockerparams"]
+        outerport = int(config[imagesection]["outerport"])
+        globalDockerPorts.registerProxy(
+            outerport,
+            #amount=int(config[imagesection]["amount"]),
+            config[imagesection]["dockerparams"]
             )
 
-        listenport = int(config[imagesection]["proxyport"])
-        print("Listening on port {}".format(listenport))
-        reactor.listenTCP(listenport, DockerProxyFactory(dports))
+        print("Listening on port {}".format(outerport))
+        reactor.listenTCP(outerport, DockerProxyFactory(outerport))
     reactor.run()
 
 
