@@ -4,57 +4,116 @@ from twisted.protocols.portforward import *
 from twisted.internet import reactor
 
 import time, socket, subprocess
+import configparser, glob
 
 # this is a global object that keeps track of the free ports
 # when requested, it allocated a new docker instance and returns it
 
 class DockerPorts():
     def __init__(self):
-        self.instancesByPort = dict()
         self.instancesByName = dict()
         self.imageParams = dict()
 
-    def registerProxy(self, imagename, outerport, params, limit):
-        self.imageParams[outerport] = {
+    def readConfig(self, fn):
+        # read the configfile.
+        config = configparser.ConfigParser()
+        print("Reading configfile from {}".format(fn))
+        config.read(fn)
+
+        # if there is a configdir directory, reread everything
+        if "global" in config.sections() and "splitconfigfiles" in config["global"]:
+            fnlist = [fn] + [f for f in glob.glob(config["global"]["splitconfigfiles"])]
+            print("Detected configdir directive. Reading configfiles from {}".format(fnlist))
+            config = configparser.ConfigParser()
+            config.read(fnlist)
+
+        if len(config.sections()) == 0 or (len(config.sections()) == 1 and "global" in config.sections()):
+            print("invalid configfile. No docker images")
+            sys.exit(1)
+
+        for imagesection in [n for n in config.sections() if n != "global"]:
+            outerport = int(config[imagesection]["outerport"])
+            self.registerProxy(imagesection, outerport,
+                config[imagesection]["dockerparams"],
+                self._parseInt(config[imagesection]["limit"]) if "limit" in config[imagesection] else 0,
+                self._parseTruthy(config[imagesection]["reuse"]) if "reuse" in config[imagesection] else False
+                )
+
+        return dict([(name, self.imageParams[name]["outerport"]) for name in self.imageParams.keys()])
+
+    def _parseInt(self, x):
+        return int(x)
+
+    def _parseTruthy(self, x):
+        if x.lower() in ["0", "false", "no"]:
+            return False
+        if x.lower() in ["1", "true", "yes"]:
+            return True
+
+        raise "Unknown truthy value {}".format(x)
+
+    def registerProxy(self, imagename, outerport, params, limit, reuse):
+        self.imageParams[imagename] = {
             "imagename": imagename,
+            "outerport": outerport,
             "params": params,
-            "limit": limit
+            "limit": limit,
+            "reuse": reuse
         }
 
-    def create(self, outerport):
-        imagename = self.imageParams[outerport]["imagename"]
-        imagelimit = self.imageParams[outerport]["limit"]
-        if imagelimit > 0 and imagename in self.instancesByName:
-            icount = len(self.instancesByName[imagename])
-            if icount >= imagelimit:
-                print("Reached max count of {} (currently {}) for image {}".format(imagelimit, icount, imagename))
-                return None
+    def create(self, imagename):
+        outerport = self.imageParams[imagename]["outerport"]
+        imagelimit = self.imageParams[imagename]["limit"]
+        reuse = self.imageParams[imagename]["reuse"]
+        params = self.imageParams[imagename]["params"]
 
-        instance = DockerInstance(imagename, self.imageParams[outerport]["params"])
-        instance.start()
-        p = instance.middleport
-        self.instancesByPort[p] = instance
+        icount = 0
+        if imagename in self.instancesByName:
+            icount = len(self.instancesByName[imagename])
+
+        if imagelimit > 0 and icount >= imagelimit:
+            print("Reached max count of {} (currently {}) for image {}".format(imagelimit, icount, imagename))
+            return None
+
+        instance = None
+
+        if reuse and icount > 0:
+            print("Reusing existing instance for image {}".format(imagename))
+            instance = self.instancesByName[imagename][0]
+        else:
+            instance = DockerInstance(imagename, params, reuse)
+            instance.start()
+
         if imagename not in self.instancesByName:
             self.instancesByName[imagename] = []
+
+        # in case of reuse, the list will have duplicates
         self.instancesByName[imagename] += [instance]
 
         return instance
 
     def destroy(self, instance):
-        instance.stop()
-        p = instance.middleport
-        n = instance.imagename
-        del self.instancesByPort[p]
-        self.instancesByName[n].remove(instance)
+        imagename = instance.imagename
+        reuse = self.imageParams[imagename]["reuse"]
+
+        # in case of reuse, the list will have duplicates, but remove() does not care
+        self.instancesByName[imagename].remove(instance)
+
+        # stop the instance if there is no reuse, or if this is the last instance for a reused image
+        if not reuse or len(self.instancesByName[imagename]) == 0:
+            instance.stop()
+
 
 # this class represents a single docker instance listening on a certain middleport.
 # The middleport is managed by the DockerPorts global object
 # After the docker container is started, we wait until the middleport becomes reachable
 # before returning
 class DockerInstance():
-    def __init__(self, imagename, dockerparams):
+    def __init__(self, imagename, dockerparams, reuse):
+        # TODO FIXME: keep a cleaner datastructure in DockerInstance, instead of a bunch of single variables
         self.dockerparams = dockerparams
         self.imagename = imagename
+        self.reuse = reuse
         self.middleport = None
         self.instanceid = None
 
@@ -164,43 +223,16 @@ class DockerProxyFactory(ProxyFactory):
     def __init__(self, outerport):
         self.outerport = outerport
 
-def readConfig(fn):
-    import configparser, glob
-    # read the configfile.
-    config = configparser.ConfigParser()
-    print("Reading configfile from {}".format(fn))
-    config.read(fn)
-
-    # if there is a configdir directory, reread everything
-    if "global" in config.sections() and "splitconfigfiles" in config["global"]:
-        fnlist = [fn] + [f for f in glob.glob(config["global"]["splitconfigfiles"])]
-        print("Detected configdir directive. Reading configfiles from {}".format(fnlist))
-        config = configparser.ConfigParser()
-        config.read(fnlist)
-
-    return config
-
 
 if __name__ == "__main__":
     import sys
 
-    config = readConfig(sys.argv[1] if len(sys.argv) > 1 else '/etc/docker-tcp-switchboard.conf')
-
-    if len(config.sections()) == 0 or (len(config.sections()) == 1 and "global" in config.sections()):
-        print("invalid configfile. No docker images")
-        sys.exit(1)
-
     globalDockerPorts = DockerPorts()
+    portsAndNames = globalDockerPorts.readConfig(sys.argv[1] if len(sys.argv) > 1 else '/etc/docker-tcp-switchboard.conf')
 
-    for imagesection in [n for n in config.sections() if n != "global"]:
-        outerport = int(config[imagesection]["outerport"])
-        globalDockerPorts.registerProxy(imagesection, outerport,
-            config[imagesection]["dockerparams"],
-            int(config[imagesection]["limit"])
-            )
-
+    for (name, outerport) in portsAndNames.items():
         print("Listening on port {}".format(outerport))
-        reactor.listenTCP(outerport, DockerProxyFactory(outerport))
+        reactor.listenTCP(outerport, DockerProxyFactory(name))
     reactor.run()
 
 
