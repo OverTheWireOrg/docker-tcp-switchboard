@@ -12,8 +12,9 @@ lock = threading.Lock()
 connectCount = 0
 
 class Echo(Protocol):
-    def __init__(self, repeats = 10, data = "xxx", translationFunction = lambda x: x, delay = 0):
+    def __init__(self, factory, repeats = 10, data = "xxx", translationFunction = lambda x: x, delay = 0):
         self.lines = []
+        self.factory = factory
         self.repeats = repeats
         self.sendData = data
         self.translationFunction = translationFunction
@@ -35,7 +36,9 @@ class Echo(Protocol):
     def connectionLost(self, reason):
         #self.lines += ["?: {}".format(reason)]
         self.lines += ["?: Done"]
-        if "weird" == self.verifyOutcome():
+        res = self.verifyOutcome()
+        self.factory.logResult(res)
+        if "weird" == res:
             global errorcode
             errorcode = 1
 
@@ -58,13 +61,35 @@ class Echo(Protocol):
             return "weird"
         
 class UpperEcho(Echo):
-    def __init__(self, repeats = 10, data = "xxx", delay = 0):
-        super().__init__(repeats, data, lambda x: x.upper(), delay)
+    def __init__(self, factory, repeats = 10, data = "xxx", delay = 0):
+        super().__init__(factory, repeats, data, lambda x: x.upper(), delay)
             
 
 class EchoClientFactory(ClientFactory):
-    def __init__(self, protocol = None):
+    def __init__(self, protocol = None, goodconn = None, maxconn = None):
         self.protocol = protocol
+        self.goodconn = goodconn
+        self.maxconn = maxconn
+        self.results = []
+
+    def logResult(self, x):
+        self.results += [x]
+
+        fullcount = len([n for n in self.results if n == "full"])
+        successcount = len([n for n in self.results if n == "success"])
+        weirdcount = len([n for n in self.results if n == "weird"])
+        total = len(self.results)
+
+        if weirdcount > 0:
+            raise Exception("Detected weird connections. Abort")
+
+        if total == self.maxconn and successcount != self.goodconn:
+            raise Exception("All {} connections finished, but success count ({}) is not the expected {}".format(total, successcount, self.goodconn))
+
+        if total > self.maxconn:
+            raise Exception("Counted more connections ({}) than the {} connections anticipated".format(total, self.maxconn))
+
+
 
     def startedConnecting(self, connector):
         global connectCount, lock
@@ -75,7 +100,7 @@ class EchoClientFactory(ClientFactory):
     def buildProtocol(self, addr):
         global connectCount
         print('Connected.%d' % connectCount)
-        return self.protocol()
+        return self.protocol(self)
 
     def clientConnectionLost(self, connector, reason):
         global connectCount, lock
@@ -97,12 +122,19 @@ class EchoClientFactory(ClientFactory):
             if connectCount == 0:
                 reactor.stop()
 
-ecf = EchoClientFactory(Echo)
-uecf = EchoClientFactory(UpperEcho)
+echoserv_successcount = int(sys.argv[1])
+echoserv_totalcount = int(sys.argv[2])
+upperserv_successcount = int(sys.argv[3])
+upperserv_totalcount = int(sys.argv[4])
 
-for x in range(10):
+ecf = EchoClientFactory(Echo, echoserv_successcount, echoserv_totalcount)
+uecf = EchoClientFactory(UpperEcho, upperserv_successcount, upperserv_totalcount)
+
+for x in range(echoserv_totalcount):
     reactor.connectTCP("localhost", 2222, ecf)
+for x in range(upperserv_totalcount):
     reactor.connectTCP("localhost", 2223, uecf)
+
 reactor.run()
 
 sys.exit(errorcode)
