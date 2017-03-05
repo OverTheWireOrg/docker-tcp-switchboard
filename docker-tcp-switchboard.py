@@ -31,10 +31,12 @@ class DockerPorts():
             print("invalid configfile. No docker images")
             sys.exit(1)
 
+        prefix = (config["global"]["dockerparamsprefix"] + " ") if "dockerparamsprefix" in config["global"] else ""
+
         for imagesection in [n for n in config.sections() if n != "global"]:
             outerport = int(config[imagesection]["outerport"])
             self.registerProxy(imagesection, outerport,
-                config[imagesection]["dockerparams"],
+                prefix + config[imagesection]["dockerparams"],
                 self._parseInt(config[imagesection]["limit"]) if "limit" in config[imagesection] else 0,
                 self._parseTruthy(config[imagesection]["reuse"]) if "reuse" in config[imagesection] else False
                 )
