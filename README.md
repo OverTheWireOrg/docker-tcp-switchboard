@@ -1,6 +1,6 @@
 # Docker TCP Switchboard
 
-[![Build Status](https://api.travis-ci.org/OverTheWireOrg/docker-tcp-switchboard.svg?branch=master)](https://api.travis-ci.org/OverTheWireOrg/docker-tcp-switchboard)
+[![Build Status](https://api.travis-ci.org/OverTheWireOrg/docker-tcp-switchboard.svg?branch=master)](https://travis-ci.org/OverTheWireOrg/docker-tcp-switchboard)
 
 This project is part of [OverTheWire]'s infrastructure and used to provide
 players of OverTheWire wargames with a fresh Docker container each time they
