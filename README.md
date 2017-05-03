@@ -1,12 +1,33 @@
-This is how it should work:
+# Docker TCP Switchboard
 
-For an incoming connection to a certain port X :
-	allocate a new port Y for docker to listen to in a specific range
-		if there are no free ports in the range, wait up to 5 seconds before giving up
-	start docker and connect SSH to port Y
-	forward data between port X and Y
-		if the datarate or volume exceeds some treshold, slow down or terminate the connection
+[![Build Status](https://api.travis-ci.org/OverTheWireOrg/docker-tcp-switchboard.svg?branch=master)](https://api.travis-ci.org/OverTheWireOrg/docker-tcp-switchboard)
 
-When the connection terminates (port X forwarded to port Y):
-	clean up the docker environment
-	free port Y
+This project is part of [OverTheWire]'s infrastructure and used to provide
+players of OverTheWire wargames with a fresh Docker container each time they
+log into SSH.
+
+At this point in time, docker-tcp-switchboard only really supports SSH instead
+of arbitrary TCP connections, since it makes a connection to the backend and
+expects to receive a banner in order to determine that the Docker containers
+has started up successfully.
+
+Some features, current and future:
+
+* Allocate a new Docker instance per connection
+* Ability to reuse Docker instances for multiple connections.
+* Ability to limit the amount of running containers to avoid resource exhaustion.
+* [future] Ability to set quota (time-limit, network traffic limit) per container.
+* [future] Ability to delay network communication for incoming connections, to
+  prevent that a flood of incoming connections spawns of a flood of containers
+  that overwhelm the Docker host.
+
+## Usage
+
+TODO
+
+## Example configuration file
+
+TODO
+
+
+[OverTheWire]: http://overthewire.org
