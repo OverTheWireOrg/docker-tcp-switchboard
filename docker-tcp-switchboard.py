@@ -137,6 +137,8 @@ class DockerInstance():
 
         try:
             # try to parse something like: "22/tcp -> 0.0.0.0:12345" to extract 12345
+            # FIXME BUG: this parsing doesn't take into account that multiple ports may be forwarded
+            # See Issue #1 at https://github.com/OverTheWireOrg/docker-tcp-switchboard/issues/1
             self.middleport = int(out.strip().split(" ")[2].split(":")[1])
         except:
             print("Failed to parse port from returned data for instanceid {}: {}".format(self.instanceid, out))
