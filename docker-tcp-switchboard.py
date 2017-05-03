@@ -5,6 +5,7 @@ from twisted.internet import reactor
 
 import time, socket, subprocess
 import configparser, glob
+import random, string
 
 # this is a global object that keeps track of the free ports
 # when requested, it allocated a new docker instance and returns it
@@ -189,16 +190,33 @@ class DockerInstance():
             time.sleep(step)
         return False
         
+class LoggingProxyClient(ProxyClient):
+    def dataReceived(self, data):
+        payloadlen = len(data)
+        self.factory.server.upBytes += payloadlen
+        self.peer.transport.write(data)
+
+class LoggingProxyClientFactory(ProxyClientFactory):
+    protocol = LoggingProxyClient
 
 class DockerProxyServer(ProxyServer):
-    clientProtocolFactory = ProxyClientFactory
+    clientProtocolFactory = LoggingProxyClientFactory
     reactor = None
+
+    def __init__(self):
+        super().__init__()
+        self.downBytes = 0
+        self.upBytes = 0
+        self.sessionID = "".join([random.choice(string.ascii_letters) for _ in range(16)])
+        self.sessionStart = time.time()
 
     # This is a reimplementation, except that we want to specify host and port...
     def connectionMade(self): 
         # Don't read anything from the connecting client until we have
         # somewhere to send it to.
         self.transport.pauseProducing()
+
+        print("[Session {}] Incoming connection from {} at {}".format(self.sessionID, self.transport.getPeer(), self.sessionStart))
 
         client = self.clientProtocolFactory()
         client.setServer(self)
@@ -220,6 +238,17 @@ class DockerProxyServer(ProxyServer):
             globalDockerPorts.destroy(self.dockerinstance)
         self.dockerinstance = None
         super().connectionLost(reason)
+        timenow = time.time()
+        print("[Session {}] server disconnected session from {} (start={}, end={}, duration={}, upBytes={}, downBytes={}, totalBytes={})".format(
+                self.sessionID, self.transport.getPeer(),
+                self.sessionStart, timenow, timenow-self.sessionStart,
+                self.upBytes, self.downBytes, self.upBytes + self.downBytes))
+
+    def dataReceived(self, data):
+        payloadlen = len(data)
+        self.downBytes += payloadlen
+        self.peer.transport.write(data)
+
 
 class DockerProxyFactory(ProxyFactory):
     protocol = DockerProxyServer
