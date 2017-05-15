@@ -7,6 +7,9 @@ import time, socket, subprocess
 import configparser, glob
 import random, string
 
+import logging
+logger = logging.getLogger("docker-tcp-switchboard")
+
 # this is a global object that keeps track of the free ports
 # when requested, it allocated a new docker instance and returns it
 
@@ -18,18 +21,31 @@ class DockerPorts():
     def readConfig(self, fn):
         # read the configfile.
         config = configparser.ConfigParser()
-        print("Reading configfile from {}".format(fn))
+        logger.debug("Reading configfile from {}".format(fn))
         config.read(fn)
+
+        # set log file
+        if "global" in config.sections() and "logfile" in config["global"]:
+            #global logger
+            handler = logging.FileHandler(config["global"]["logfile"])
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
+
+        # set log level
+        if "global" in config.sections() and "loglevel" in config["global"]:
+            #global logger
+            logger.setLevel(logging.getLevelName(config["global"]["loglevel"]))
 
         # if there is a configdir directory, reread everything
         if "global" in config.sections() and "splitconfigfiles" in config["global"]:
             fnlist = [fn] + [f for f in glob.glob(config["global"]["splitconfigfiles"])]
-            print("Detected configdir directive. Reading configfiles from {}".format(fnlist))
+            logger.debug("Detected configdir directive. Reading configfiles from {}".format(fnlist))
             config = configparser.ConfigParser()
             config.read(fnlist)
 
         if len(config.sections()) == 0 or (len(config.sections()) == 1 and "global" in config.sections()):
-            print("invalid configfile. No docker images")
+            logger.error("invalid configfile. No docker images")
             sys.exit(1)
 
         prefix = (config["global"]["dockerparamsprefix"] + " ") if "dockerparamsprefix" in config["global"] else ""
@@ -75,13 +91,13 @@ class DockerPorts():
             icount = len(self.instancesByName[imagename])
 
         if imagelimit > 0 and icount >= imagelimit:
-            print("Reached max count of {} (currently {}) for image {}".format(imagelimit, icount, imagename))
+            logger.warn("Reached max count of {} (currently {}) for image {}".format(imagelimit, icount, imagename))
             return None
 
         instance = None
 
         if reuse and icount > 0:
-            print("Reusing existing instance for image {}".format(imagename))
+            logger.debug("Reusing existing instance for image {}".format(imagename))
             instance = self.instancesByName[imagename][0]
         else:
             instance = DockerInstance(imagename, params, reuse)
@@ -124,16 +140,16 @@ class DockerInstance():
         cmd = "docker run --detach {}".format(self.dockerparams)
         (rc, out) = subprocess.getstatusoutput(cmd.format(0))
         if rc != 0:
-            print("Failed to start instance")
-            print("rc={}, out={}".format(rc, out))
+            logger.warn("Failed to start instance")
+            logger.warn("rc={}, out={}".format(rc, out))
             return None
 
         self.instanceid = out.strip()
         cmd = "docker port {}".format(self.instanceid)
         (rc, out) = subprocess.getstatusoutput(cmd)
         if rc != 0:
-            print("Failed to get port information from {}".format(self.instanceid))
-            print("rc={}, out={}".format(rc, out))
+            logger.warn("Failed to get port information from {}".format(self.instanceid))
+            logger.warn("rc={}, out={}".format(rc, out))
             return None
 
         try:
@@ -142,11 +158,11 @@ class DockerInstance():
             # See Issue #1 at https://github.com/OverTheWireOrg/docker-tcp-switchboard/issues/1
             self.middleport = int(out.strip().split(" ")[2].split(":")[1])
         except:
-            print("Failed to parse port from returned data for instanceid {}: {}".format(self.instanceid, out))
+            logger.warn("Failed to parse port from returned data for instanceid {}: {}".format(self.instanceid, out))
             self.stop()
             return None
 
-        print("Started instance on middleport {} with ID {}".format(self.middleport, self.instanceid))
+        logger.debug("Started instance on middleport {} with ID {}".format(self.middleport, self.instanceid))
         if self.__waitForOpenPort():
             return self.instanceid
         else:
@@ -154,14 +170,14 @@ class DockerInstance():
             return None
 
     def stop(self):
-        print("Killing and removing {} (middleport {})".format(self.instanceid, self.middleport))
+        logger.debug("Killing and removing {} (middleport {})".format(self.instanceid, self.middleport))
         (rc, _) = subprocess.getstatusoutput(("docker kill {}".format(self.instanceid)))
         if rc != 0:
-            print("Failed to stop instance for middleport {}, id {}".format(self.middleport, self.instanceid))
+            logger.warn("Failed to stop instance for middleport {}, id {}".format(self.middleport, self.instanceid))
             return False
         (rc, _) = subprocess.getstatusoutput(("docker rm {}".format(self.instanceid)))
         if rc != 0:
-            print("Failed to remove instance for middleport {}, id {}".format(self.middleport, self.instanceid))
+            logger.warn("Failed to remove instance for middleport {}, id {}".format(self.middleport, self.instanceid))
             return False
         return True
 
@@ -216,7 +232,6 @@ class DockerProxyServer(ProxyServer):
         # somewhere to send it to.
         self.transport.pauseProducing()
 
-        print("[Session {}] Incoming connection from {} at {}".format(self.sessionID, self.transport.getPeer(), self.sessionStart))
 
         client = self.clientProtocolFactory()
         client.setServer(self)
@@ -226,6 +241,8 @@ class DockerProxyServer(ProxyServer):
             self.reactor = reactor
         global globalDockerPorts
         self.dockerinstance = globalDockerPorts.create(self.factory.outerport)
+        logger.info("[Session {}] Incoming connection for image {} from {} at {}".format(self.sessionID, self.dockerinstance.imagename,
+                self.transport.getPeer(), self.sessionStart))
         if self.dockerinstance == None:
             self.transport.write(bytearray("Maximum connection-count reached. Try again later.\r\n", "utf-8"))
             self.transport.loseConnection()
@@ -233,14 +250,16 @@ class DockerProxyServer(ProxyServer):
             self.reactor.connectTCP("0.0.0.0", self.dockerinstance.middleport, client)
 
     def connectionLost(self, reason):
+        imagename = "<none>"
         if self.dockerinstance != None:
             global globalDockerPorts
             globalDockerPorts.destroy(self.dockerinstance)
+            imagename = self.dockerinstance.imagename
         self.dockerinstance = None
         super().connectionLost(reason)
         timenow = time.time()
-        print("[Session {}] server disconnected session from {} (start={}, end={}, duration={}, upBytes={}, downBytes={}, totalBytes={})".format(
-                self.sessionID, self.transport.getPeer(),
+        logger.info("[Session {}] server disconnected session for image {} from {} (start={}, end={}, duration={}, upBytes={}, downBytes={}, totalBytes={})".format(
+                self.sessionID, imagename, self.transport.getPeer(),
                 self.sessionStart, timenow, timenow-self.sessionStart,
                 self.upBytes, self.downBytes, self.upBytes + self.downBytes))
 
@@ -264,7 +283,7 @@ if __name__ == "__main__":
     portsAndNames = globalDockerPorts.readConfig(sys.argv[1] if len(sys.argv) > 1 else '/etc/docker-tcp-switchboard.conf')
 
     for (name, outerport) in portsAndNames.items():
-        print("Listening on port {}".format(outerport))
+        logger.debug("Listening on port {}".format(outerport))
         reactor.listenTCP(outerport, DockerProxyFactory(name))
     reactor.run()
 
