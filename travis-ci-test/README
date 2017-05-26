@@ -1,0 +1,7 @@
+The travis test runs docker inside docker.
+In the outer container, we run docker and the switchboard.
+The inner containers run echoserv and upperserv.
+
+runtest.sh starts docker, builds the images for the inner containers,
+starts the switchboard and then runs client.py, which runs the tests
+against echoserv and upperserv.

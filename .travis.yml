@@ -3,12 +3,8 @@ sudo: required
 services:
 - docker
 before_install:
-- sudo apt-get update && sudo apt-get -y install build-essential python-dev python3-dev python3-pip
-- sudo pip install -r requirements.txt
-- sudo pip3 install -r requirements.txt
-- docker build -t echoserv -f travis-ci-test/Dockerfile.echoserv travis-ci-test
-- docker build -t upperserv -f travis-ci-test/Dockerfile.upperserv travis-ci-test
+- docker build -t testenv -f travis-ci-test/Dockerfile.host .
 
 script:
-- cd travis-ci-test && ./runtest.sh
+- docker run --privileged --rm -ti testenv
 
