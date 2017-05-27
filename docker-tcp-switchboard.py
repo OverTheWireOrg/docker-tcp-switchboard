@@ -112,7 +112,7 @@ class DockerPorts():
         return instance
 
     def destroy(self, instance):
-        imagename = instance.imagename
+        imagename = instance.getImagename()
         reuse = self.imageParams[imagename]["reuse"]
 
         # in case of reuse, the list will have duplicates, but remove() does not care
@@ -130,25 +130,36 @@ class DockerPorts():
 class DockerInstance():
     def __init__(self, imagename, dockerparams, reuse):
         # TODO FIXME: keep a cleaner datastructure in DockerInstance, instead of a bunch of single variables
-        self.dockerparams = dockerparams
-        self.imagename = imagename
-        self.reuse = reuse
-        self.middleport = None
-        self.instanceid = None
+        self._dockerparams = dockerparams
+        self._imagename = imagename # FIXME make a getter
+        self._reuse = reuse
+        self._middleport = None
+        self._instanceid = None
 
+    def getMiddlePort(self):
+        return self._middleport
+
+    def getImagename(self):
+        return self._imagename
+
+    # start a container detached
+    # retrieve the middleport
+    # wait until the port is open
+    # on error: bail out
+    # can we start with detach and autoremove?
     def start(self):
-        cmd = "docker run --detach {}".format(self.dockerparams)
+        cmd = "docker run --detach {}".format(self._dockerparams)
         (rc, out) = subprocess.getstatusoutput(cmd.format(0))
         if rc != 0:
             logger.warn("Failed to start instance")
             logger.warn("rc={}, out={}".format(rc, out))
             return None
 
-        self.instanceid = out.strip()
-        cmd = "docker port {}".format(self.instanceid)
+        self._instanceid = out.strip()
+        cmd = "docker port {}".format(self._instanceid)
         (rc, out) = subprocess.getstatusoutput(cmd)
         if rc != 0:
-            logger.warn("Failed to get port information from {}".format(self.instanceid))
+            logger.warn("Failed to get port information from {}".format(self._instanceid))
             logger.warn("rc={}, out={}".format(rc, out))
             return None
 
@@ -156,28 +167,29 @@ class DockerInstance():
             # try to parse something like: "22/tcp -> 0.0.0.0:12345" to extract 12345
             # FIXME BUG: this parsing doesn't take into account that multiple ports may be forwarded
             # See Issue #1 at https://github.com/OverTheWireOrg/docker-tcp-switchboard/issues/1
-            self.middleport = int(out.strip().split(" ")[2].split(":")[1])
+            self._middleport = int(out.strip().split(" ")[2].split(":")[1])
         except:
-            logger.warn("Failed to parse port from returned data for instanceid {}: {}".format(self.instanceid, out))
+            logger.warn("Failed to parse port from returned data for instanceid {}: {}".format(self._instanceid, out))
             self.stop()
             return None
 
-        logger.debug("Started instance on middleport {} with ID {}".format(self.middleport, self.instanceid))
+        logger.debug("Started instance on middleport {} with ID {}".format(self._middleport, self._instanceid))
         if self.__waitForOpenPort():
-            return self.instanceid
+            return self._instanceid
         else:
             self.stop()
             return None
 
+    # stop a certain container, remove the container
     def stop(self):
-        logger.debug("Killing and removing {} (middleport {})".format(self.instanceid, self.middleport))
-        (rc, _) = subprocess.getstatusoutput(("docker kill {}".format(self.instanceid)))
+        logger.debug("Killing and removing {} (middleport {})".format(self._instanceid, self._middleport))
+        (rc, _) = subprocess.getstatusoutput(("docker kill {}".format(self._instanceid)))
         if rc != 0:
-            logger.warn("Failed to stop instance for middleport {}, id {}".format(self.middleport, self.instanceid))
+            logger.warn("Failed to stop instance for middleport {}, id {}".format(self._middleport, self._instanceid))
             return False
-        (rc, _) = subprocess.getstatusoutput(("docker rm {}".format(self.instanceid)))
+        (rc, _) = subprocess.getstatusoutput(("docker rm {}".format(self._instanceid)))
         if rc != 0:
-            logger.warn("Failed to remove instance for middleport {}, id {}".format(self.middleport, self.instanceid))
+            logger.warn("Failed to remove instance for middleport {}, id {}".format(self._middleport, self._instanceid))
             return False
         return True
 
@@ -185,7 +197,7 @@ class DockerInstance():
         s = socket.socket()
         ret = False
         try:
-            s.connect(("0.0.0.0", self.middleport))
+            s.connect(("0.0.0.0", self._middleport))
             # just connecting is not enough, we should try to read and get at least 1 byte back
             # since the daemon in the container might not have started accepting connections yet, while docker-proxy does
             s.settimeout(readtimeout)
@@ -245,16 +257,16 @@ class DockerProxyServer(ProxyServer):
             self.transport.write(bytearray("Maximum connection-count reached. Try again later.\r\n", "utf-8"))
             self.transport.loseConnection()
         else:
-            logger.info("[Session {}] Incoming connection for image {} from {} at {}".format(self.sessionID, self.dockerinstance.imagename,
+            logger.info("[Session {}] Incoming connection for image {} from {} at {}".format(self.sessionID, self.dockerinstance.getImagename(),
                 self.transport.getPeer(), self.sessionStart))
-            self.reactor.connectTCP("0.0.0.0", self.dockerinstance.middleport, client)
+            self.reactor.connectTCP("0.0.0.0", self.dockerinstance.getMiddlePort(), client)
 
     def connectionLost(self, reason):
         imagename = "<none>"
         if self.dockerinstance != None:
             global globalDockerPorts
             globalDockerPorts.destroy(self.dockerinstance)
-            imagename = self.dockerinstance.imagename
+            imagename = self.dockerinstance.getImagename()
         self.dockerinstance = None
         super().connectionLost(reason)
         timenow = time.time()
