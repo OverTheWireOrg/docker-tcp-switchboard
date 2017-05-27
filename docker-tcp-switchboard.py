@@ -241,12 +241,12 @@ class DockerProxyServer(ProxyServer):
             self.reactor = reactor
         global globalDockerPorts
         self.dockerinstance = globalDockerPorts.create(self.factory.outerport)
-        logger.info("[Session {}] Incoming connection for image {} from {} at {}".format(self.sessionID, self.dockerinstance.imagename,
-                self.transport.getPeer(), self.sessionStart))
         if self.dockerinstance == None:
             self.transport.write(bytearray("Maximum connection-count reached. Try again later.\r\n", "utf-8"))
             self.transport.loseConnection()
         else:
+            logger.info("[Session {}] Incoming connection for image {} from {} at {}".format(self.sessionID, self.dockerinstance.imagename,
+                self.transport.getPeer(), self.sessionStart))
             self.reactor.connectTCP("0.0.0.0", self.dockerinstance.middleport, client)
 
     def connectionLost(self, reason):
