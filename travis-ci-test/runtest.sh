@@ -8,6 +8,9 @@ docker build -t echoserv -f testimages/Dockerfile.echoserv testimages
 docker build -t upperserv -f testimages/Dockerfile.upperserv testimages
 sleep 2
 
+apt-get install python3-pip
+pip3 install ../requirements.txt
+
 # start the switchboard
 ../docker-tcp-switchboard.py config.ini &
 DAEMONPID=$!
