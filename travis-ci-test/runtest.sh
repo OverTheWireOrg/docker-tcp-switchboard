@@ -9,7 +9,7 @@ docker build -t upperserv -f testimages/Dockerfile.upperserv testimages
 sleep 2
 
 sudo apt-get install python3-pip
-sudo pip3 install ../requirements.txt
+sudo pip3 install -r ../requirements.txt
 
 # start the switchboard
 ../docker-tcp-switchboard.py config.ini &
