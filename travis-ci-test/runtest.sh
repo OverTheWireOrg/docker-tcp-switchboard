@@ -1,8 +1,7 @@
 #!/bin/bash -ex
 
 # start docker, and wait until it's likely up
-/etc/init.d/docker start
-sleep 3
+(/etc/init.d/docker start  && sleep 3 ) || true
 
 # build echoserv and upperserv
 docker build -t echoserv -f testimages/Dockerfile.echoserv testimages
