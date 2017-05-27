@@ -3,8 +3,8 @@ sudo: required
 services:
 - docker
 before_install:
-- cd travis-ci-test && ./setupenv.sh
+- pushd travis-ci-test && ./setupenv.sh && popd
 
 script:
-- cd travis-ci-test && ./runtest.sh
+- pushd travis-ci-test && ./runtest.sh && popd
 
