@@ -1,15 +1,15 @@
 #!/bin/bash -ex
 
 # start docker, and wait until it's likely up
-(/etc/init.d/docker start  && sleep 3 ) || true
+(sudo /etc/init.d/docker start  && sleep 3 ) || true
 
 # build echoserv and upperserv
 docker build -t echoserv -f testimages/Dockerfile.echoserv testimages
 docker build -t upperserv -f testimages/Dockerfile.upperserv testimages
 sleep 2
 
-apt-get install python3-pip
-pip3 install ../requirements.txt
+sudo apt-get install python3-pip
+sudo pip3 install ../requirements.txt
 
 # start the switchboard
 ../docker-tcp-switchboard.py config.ini &
