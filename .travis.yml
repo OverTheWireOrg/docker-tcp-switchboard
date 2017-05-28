@@ -6,5 +6,6 @@ before_install:
 - pushd travis-ci-test && ./setupenv.sh && popd
 
 script:
-- pushd travis-ci-test && ./runtest.sh && popd
+- pushd travis-ci-test && ./runtest_basic.sh && popd
+- pushd travis-ci-test && ./runtest_kill.sh && popd
 

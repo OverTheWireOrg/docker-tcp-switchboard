@@ -6,6 +6,7 @@ DAEMONPID=$!
 function cleanup {
   echo "Cleaning up..."
   kill -9 $DAEMONPID
+  rm -f /tmp/logfile
 }
 trap cleanup EXIT
 
