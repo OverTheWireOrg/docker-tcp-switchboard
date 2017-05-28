@@ -5,8 +5,8 @@
 DAEMONPID=$!
 function cleanup {
   echo "Cleaning up..."
-  kill -9 $DAEMONPID
-  kill -9 $NCPID
+  kill -9 $DAEMONPID || true # daemon could already be dead
+  kill -9 $NCPID || true # netcat is hopefully disconnected already
   rm -f /tmp/logfile
 }
 trap cleanup EXIT
@@ -17,6 +17,9 @@ sleep 2 # give time to startup
 nc 0 2222 &
 NCPID=$!
 sleep 3
+
+# show running containers, for debugging the test
+docker ps -a
 
 # now kill the server, which should clean up everything
 kill -s SIGTERM $DAEMONPID
