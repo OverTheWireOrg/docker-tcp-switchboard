@@ -14,7 +14,7 @@ trap cleanup EXIT
 sleep 2 # give time to startup
 
 # open a connection
-nc 0 2222 &
+((echo hi; sleep 1000) | nc 0 2222 ) &
 NCPID=$!
 sleep 3
 
