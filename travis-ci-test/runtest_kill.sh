@@ -14,9 +14,9 @@ trap cleanup EXIT
 sleep 2 # give time to startup
 
 # open a connection
-((echo hi; sleep 1000) | nc 0 2222 ) &
+((while true; do echo hi; sleep 1; done; sleep 1000) | nc 0 2222 ) &
 NCPID=$!
-sleep 3
+sleep 10
 
 # show running containers, for debugging the test
 docker ps -a
