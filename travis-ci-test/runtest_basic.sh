@@ -5,7 +5,7 @@ timeout --signal=KILL 90 ../docker-tcp-switchboard.py config.ini &
 DAEMONPID=$!
 function cleanup {
   echo "Cleaning up..."
-  kill -9 $DAEMONPID
+  kill -9 $DAEMONPID || true
   cat /tmp/logfile
   rm -f /tmp/logfile
 }
