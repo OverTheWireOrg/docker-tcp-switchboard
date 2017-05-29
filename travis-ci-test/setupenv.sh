@@ -1,5 +1,9 @@
 #!/bin/bash -ex
 
+# install latest docker if it doesn't already exist
+if [ ! -e /etc/init.d/docker ]; then
+    curl -sSL https://get.docker.com/ | sudo sh
+fi
 # start docker, and wait until it's likely up
 (sudo /etc/init.d/docker start  && sleep 3 ) || true
 
