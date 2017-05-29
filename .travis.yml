@@ -8,4 +8,5 @@ before_install:
 script:
 - pushd travis-ci-test && ./runtest_basic.sh && popd
 - pushd travis-ci-test && ./runtest_kill.sh && popd
+- pushd travis-ci-test && ./runtest_rebuild.sh && popd
 
