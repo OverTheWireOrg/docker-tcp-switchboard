@@ -15,9 +15,42 @@ logger = logging.getLogger("docker-tcp-switchboard")
 # when requested, it allocated a new docker instance and returns it
 
 class DockerPorts():
+    CONFIG_PROFILEPREFIX = "profile:"
     def __init__(self):
         self.instancesByName = dict()
         self.imageParams = dict()
+
+    def _getProfilesList(self, config):
+        out = []
+        for n in config.sections():
+            if n.startswith(self.CONFIG_PROFILEPREFIX):
+                out += [n[len(self.CONFIG_PROFILEPREFIX):]]
+        return out
+
+    def _readProfileConfig(self, config, profilename):
+        fullprofilename = "{}{}".format(self.CONFIG_PROFILEPREFIX, profilename)
+        innerport = int(config[fullprofilename]["innerport"])
+        return {
+            "outerport": int(config[fullprofilename]["outerport"]),
+            "innerport": innerport,
+            "containername": config[fullprofilename]["containername"],
+            "limit": self._parseInt(config[fullprofilename]["limit"]) if "limit" in config[fullprofilename] else 0,
+            "reuse": self._parseTruthy(config[fullprofilename]["reuse"]) if "reuse" in config[fullprofilename] else False,
+            "dockeroptions": self._getDockerOptions(config, profilename, innerport)
+        }
+
+    def _getDockerOptions(self, config, profilename, innerport):
+        # FIXME: must read from json and combine if needed
+        return { 
+            #"remove": True,
+            #"auto_remove": True, 
+            # cannot use detach and remove together
+            # See https://github.com/docker/docker-py/issues/1477
+            "detach": True, 
+            "ports": {
+                innerport: None,
+            }
+        }
 
     def readConfig(self, fn):
         # read the configfile.
@@ -45,18 +78,13 @@ class DockerPorts():
             config = configparser.ConfigParser()
             config.read(fnlist)
 
-        if len(config.sections()) == 0 or (len(config.sections()) == 1 and "global" in config.sections()):
+        if len(self._getProfilesList(config)) == 0:
             logger.error("invalid configfile. No docker images")
             sys.exit(1)
 
-        for imagesection in [n for n in config.sections() if n != "global"]:
-            outerport = int(config[imagesection]["outerport"])
-            innerport = int(config[imagesection]["innerport"])
-            containername = config[imagesection]["containername"]
-            self.registerProxy(imagesection, containername, outerport, innerport,
-                self._parseInt(config[imagesection]["limit"]) if "limit" in config[imagesection] else 0,
-                self._parseTruthy(config[imagesection]["reuse"]) if "reuse" in config[imagesection] else False
-                )
+        for profilename in self._getProfilesList(config):
+            conf = self._readProfileConfig(config, profilename)
+            self.registerProxy(profilename, conf)
 
         return dict([(name, self.imageParams[name]["outerport"]) for name in self.imageParams.keys()])
 
@@ -71,68 +99,49 @@ class DockerPorts():
 
         raise "Unknown truthy value {}".format(x)
 
-    def registerProxy(self, imagename, containername, outerport, innerport, limit, reuse):
-        self.imageParams[imagename] = {
-            "imagename": imagename,
-            "containername": containername,
-            "outerport": outerport,
-            "innerport": innerport,
-            "dockeropts": { # FIXME: must be configurable
-                #"remove": True,
-                # cannot use detach and remove together
-                # See https://github.com/docker/docker-py/issues/1477
-                "detach": True, 
-                #"auto_remove": True, 
-                "ports": {
-                    innerport: None,
-                }
-            },
-            "limit": limit,
-            "reuse": reuse
-        }
+    def registerProxy(self, profilename, conf):
+        self.imageParams[profilename] = conf
 
-    def create(self, imagename):
-        outerport = self.imageParams[imagename]["outerport"]
-        innerport = self.imageParams[imagename]["innerport"]
-        containername = self.imageParams[imagename]["containername"]
-        imagelimit = self.imageParams[imagename]["limit"]
-        reuse = self.imageParams[imagename]["reuse"]
-        dockeropts = self.imageParams[imagename]["dockeropts"]
+    def create(self, profilename):
+        containername = self.imageParams[profilename]["containername"]
+        dockeroptions = self.imageParams[profilename]["dockeroptions"]
+        imagelimit = self.imageParams[profilename]["limit"]
+        reuse = self.imageParams[profilename]["reuse"]
 
         icount = 0
-        if imagename in self.instancesByName:
-            icount = len(self.instancesByName[imagename])
+        if profilename in self.instancesByName:
+            icount = len(self.instancesByName[profilename])
 
         if imagelimit > 0 and icount >= imagelimit:
-            logger.warn("Reached max count of {} (currently {}) for image {}".format(imagelimit, icount, imagename))
+            logger.warn("Reached max count of {} (currently {}) for image {}".format(imagelimit, icount, profilename))
             return None
 
         instance = None
 
         if reuse and icount > 0:
-            logger.debug("Reusing existing instance for image {}".format(imagename))
-            instance = self.instancesByName[imagename][0]
+            logger.debug("Reusing existing instance for image {}".format(profilename))
+            instance = self.instancesByName[profilename][0]
         else:
-            instance = DockerInstance(imagename, containername, dockeropts)
+            instance = DockerInstance(profilename, containername, dockeroptions)
             instance.start()
 
-        if imagename not in self.instancesByName:
-            self.instancesByName[imagename] = []
+        if profilename not in self.instancesByName:
+            self.instancesByName[profilename] = []
 
         # in case of reuse, the list will have duplicates
-        self.instancesByName[imagename] += [instance]
+        self.instancesByName[profilename] += [instance]
 
         return instance
 
     def destroy(self, instance):
-        imagename = instance.getImageName()
-        reuse = self.imageParams[imagename]["reuse"]
+        profilename = instance.getProfileName()
+        reuse = self.imageParams[profilename]["reuse"]
 
         # in case of reuse, the list will have duplicates, but remove() does not care
-        self.instancesByName[imagename].remove(instance)
+        self.instancesByName[profilename].remove(instance)
 
         # stop the instance if there is no reuse, or if this is the last instance for a reused image
-        if not reuse or len(self.instancesByName[imagename]) == 0:
+        if not reuse or len(self.instancesByName[profilename]) == 0:
             instance.stop()
 
 
@@ -141,11 +150,11 @@ class DockerPorts():
 # After the docker container is started, we wait until the middleport becomes reachable
 # before returning
 class DockerInstance():
-    def __init__(self, imagename, containername, dockeropts):
+    def __init__(self, profilename, containername, dockeroptions):
         # TODO FIXME: keep a cleaner datastructure in DockerInstance, instead of a bunch of single variables
-        self._imagename = imagename
+        self._profilename = profilename
         self._containername = containername
-        self._dockeroptions = dockeropts
+        self._dockeroptions = dockeroptions
         self._instance = None
 
     def getDockerOptions(self):
@@ -161,8 +170,8 @@ class DockerInstance():
             logger.warn("Failed to get port information from {}: {}".format(self.getInstanceID(), e))
         return None
 
-    def getImageName(self):
-        return self._imagename
+    def getProfileName(self):
+        return self._profilename
 
     def getInstanceID(self):
         try:
@@ -177,12 +186,12 @@ class DockerInstance():
 
         # start instance
         try:
-            logger.debug("Starting instance {} of container {}".format(self.getImageName(), self.getContainerName()))
+            logger.debug("Starting instance {} of container {}".format(self.getProfileName(), self.getContainerName()))
             clientres = client.containers.run(self.getContainerName(), **self.getDockerOptions())
             self._instance = client.containers.get(clientres.id)
-            logger.debug("Done starting instance {} of container {}".format(self.getImageName(), self.getContainerName()))
+            logger.debug("Done starting instance {} of container {}".format(self.getProfileName(), self.getContainerName()))
         except Exception as e:
-            logger.debug("Failed to start instance {} of container {}: {}".format(self.getImageName(), self.getContainerName(), e))
+            logger.debug("Failed to start instance {} of container {}: {}".format(self.getProfileName(), self.getContainerName(), e))
             self.stop()
             return False
 
@@ -275,21 +284,21 @@ class DockerProxyServer(ProxyServer):
             self.transport.write(bytearray("Maximum connection-count reached. Try again later.\r\n", "utf-8"))
             self.transport.loseConnection()
         else:
-            logger.info("[Session {}] Incoming connection for image {} from {} at {}".format(self.sessionID, self.dockerinstance.getImageName(),
+            logger.info("[Session {}] Incoming connection for image {} from {} at {}".format(self.sessionID, self.dockerinstance.getProfileName(),
                 self.transport.getPeer(), self.sessionStart))
             self.reactor.connectTCP("0.0.0.0", self.dockerinstance.getMiddlePort(), client)
 
     def connectionLost(self, reason):
-        imagename = "<none>"
+        profilename = "<none>"
         if self.dockerinstance != None:
             global globalDockerPorts
             globalDockerPorts.destroy(self.dockerinstance)
-            imagename = self.dockerinstance.getImageName()
+            profilename = self.dockerinstance.getProfileName()
         self.dockerinstance = None
         super().connectionLost(reason)
         timenow = time.time()
         logger.info("[Session {}] server disconnected session for image {} from {} (start={}, end={}, duration={}, upBytes={}, downBytes={}, totalBytes={})".format(
-                self.sessionID, imagename, self.transport.getPeer(),
+                self.sessionID, profilename, self.transport.getPeer(),
                 self.sessionStart, timenow, timenow-self.sessionStart,
                 self.upBytes, self.downBytes, self.upBytes + self.downBytes))
 
