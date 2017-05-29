@@ -6,6 +6,8 @@ from twisted.internet import reactor
 import time, socket
 import configparser, glob
 import random, string
+import pprint
+import json
 import docker
 
 import logging
@@ -16,6 +18,8 @@ logger = logging.getLogger("docker-tcp-switchboard")
 
 class DockerPorts():
     CONFIG_PROFILEPREFIX = "profile:"
+    CONFIG_DOCKEROPTIONSPREFIX = "dockeroptions:"
+
     def __init__(self):
         self.instancesByName = dict()
         self.imageParams = dict()
@@ -39,18 +43,47 @@ class DockerPorts():
             "dockeroptions": self._getDockerOptions(config, profilename, innerport)
         }
 
+    def _addDockerOptionsFromConfigSection(self, config, sectionname, base={}):
+        import collections
+        def update(d, u):
+            for k, v in u.items():
+                if isinstance(v, collections.Mapping):
+                    r = update(d.get(k, {}), v)
+                    d[k] = r
+                else:
+                    d[k] = u[k]
+            return d
+
+        # we may need to read json values
+        def guessvalue(v):
+            if v in ["True", "False"] or all(c in string.digits for c in v) or v.startswith("[") or v.startswith("{"):
+                return json.loads(v)
+            return v
+
+        # if sectionname doesn't exist, return base
+        # otherwise, read keywords and values, add them to base
+        if sectionname in config.sections():
+            newvals = dict(config[sectionname])
+            fixedvals = {}
+            for (k,v) in newvals.items():
+                fixedvals[k] = guessvalue(v)
+            base = update(base, fixedvals)
+            
+        return base # FIXME
+
     def _getDockerOptions(self, config, profilename, innerport):
-        # FIXME: must read from json and combine if needed
-        return { 
-            #"remove": True,
-            #"auto_remove": True, 
-            # cannot use detach and remove together
-            # See https://github.com/docker/docker-py/issues/1477
-            "detach": True, 
-            "ports": {
-                innerport: None,
-            }
-        }
+        out = self._addDockerOptionsFromConfigSection(config, "dockeroptions")
+        out = self._addDockerOptionsFromConfigSection(config, "{}{}".format(self.CONFIG_DOCKEROPTIONSPREFIX, profilename), out)
+
+        out["detach"] = True
+        if "ports" not in out:
+            out["ports"] = {}
+        out["ports"][innerport] = None
+        # cannot use detach and remove together
+        # See https://github.com/docker/docker-py/issues/1477
+        #out["remove"] = True
+        #out["auto_remove"] = True
+        return out
 
     def readConfig(self, fn):
         # read the configfile.
@@ -84,6 +117,7 @@ class DockerPorts():
 
         for profilename in self._getProfilesList(config):
             conf = self._readProfileConfig(config, profilename)
+            logger.debug("Read config for profile {} as:\n {}".format(profilename, pprint.pformat(conf)))
             self.registerProxy(profilename, conf)
 
         return dict([(name, self.imageParams[name]["outerport"]) for name in self.imageParams.keys()])
@@ -151,7 +185,6 @@ class DockerPorts():
 # before returning
 class DockerInstance():
     def __init__(self, profilename, containername, dockeroptions):
-        # TODO FIXME: keep a cleaner datastructure in DockerInstance, instead of a bunch of single variables
         self._profilename = profilename
         self._containername = containername
         self._dockeroptions = dockeroptions
@@ -186,7 +219,7 @@ class DockerInstance():
 
         # start instance
         try:
-            logger.debug("Starting instance {} of container {}".format(self.getProfileName(), self.getContainerName()))
+            logger.debug("Starting instance {} of container {} with dockeroptions {}".format(self.getProfileName(), self.getContainerName(), pprint.pformat(self.getDockerOptions())))
             clientres = client.containers.run(self.getContainerName(), **self.getDockerOptions())
             self._instance = client.containers.get(clientres.id)
             logger.debug("Done starting instance {} of container {}".format(self.getProfileName(), self.getContainerName()))
