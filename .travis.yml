@@ -1,7 +1,7 @@
-language: bash
+language: python
+python:
+  - "3.5"
 sudo: required
-#services:
-#- docker
 before_install:
 - pushd travis-ci-test && ./setupenv.sh && popd
 
