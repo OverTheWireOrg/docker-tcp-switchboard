@@ -1,7 +1,7 @@
 #!/bin/bash -ex
 
 # start the switchboard
-../docker-tcp-switchboard.py config.ini &
+timeout --signal=KILL 300 ../docker-tcp-switchboard.py config.ini &
 DAEMONPID=$!
 function cleanup {
   echo "Cleaning up..."
