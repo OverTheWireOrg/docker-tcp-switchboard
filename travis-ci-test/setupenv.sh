@@ -1,5 +1,9 @@
 #!/bin/bash -ex
 
+# installing some packages before docker install maybe messes things up
+sudo apt-get install python3-pip
+sudo pip3 install -r ../requirements.txt
+
 # install latest docker if it doesn't already exist
 if [ ! -e /etc/init.d/docker ]; then
     curl -sSL https://get.docker.com/ | sudo sh
@@ -15,6 +19,4 @@ docker build -t echoserv -f testimages/Dockerfile.echoserv testimages
 docker build -t upperserv -f testimages/Dockerfile.upperserv testimages
 sleep 2
 
-sudo apt-get install python3-pip
-sudo pip3 install -r ../requirements.txt
 
