@@ -12,7 +12,7 @@ trap cleanup EXIT
 
 sleep 2 # give time to startup
 
-./client.py 4 10 7 10
+timeout --signal=KILL 90 ./client.py 4 10 7 10
 sleep 3
 
 # Show logfile
