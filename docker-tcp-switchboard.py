@@ -37,7 +37,7 @@ class DockerPorts():
         return {
             "outerport": int(config[fullprofilename]["outerport"]),
             "innerport": innerport,
-            "containername": config[fullprofilename]["containername"],
+            "containername": config[fullprofilename]["container"],
             "limit": self._parseInt(config[fullprofilename]["limit"]) if "limit" in config[fullprofilename] else 0,
             "reuse": self._parseTruthy(config[fullprofilename]["reuse"]) if "reuse" in config[fullprofilename] else False,
             "dockeroptions": self._getDockerOptions(config, profilename, innerport)
