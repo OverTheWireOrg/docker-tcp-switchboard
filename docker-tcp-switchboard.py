@@ -9,6 +9,7 @@ import random, string
 import pprint
 import json
 import docker
+import copy
 
 import logging
 logger = logging.getLogger("docker-tcp-switchboard")
@@ -134,7 +135,7 @@ class DockerPorts():
         raise "Unknown truthy value {}".format(x)
 
     def registerProxy(self, profilename, conf):
-        self.imageParams[profilename] = conf
+        self.imageParams[profilename] = copy.deepcopy(conf)
 
     def create(self, profilename):
         containername = self.imageParams[profilename]["containername"]
