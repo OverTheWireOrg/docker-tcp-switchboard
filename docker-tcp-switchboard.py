@@ -313,7 +313,7 @@ class DockerProxyServer(ProxyServer):
             from twisted.internet import reactor
             self.reactor = reactor
         global globalDockerPorts
-        self.dockerinstance = globalDockerPorts.create(self.factory.outerport)
+        self.dockerinstance = globalDockerPorts.create(self.factory.profilename)
         if self.dockerinstance == None:
             self.transport.write(bytearray("Maximum connection-count reached. Try again later.\r\n", "utf-8"))
             self.transport.loseConnection()
@@ -345,8 +345,8 @@ class DockerProxyServer(ProxyServer):
 class DockerProxyFactory(ProxyFactory):
     protocol = DockerProxyServer
 
-    def __init__(self, outerport):
-        self.outerport = outerport
+    def __init__(self, profilename):
+        self.profilename = profilename
 
 
 if __name__ == "__main__":
