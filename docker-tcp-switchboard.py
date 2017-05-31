@@ -73,7 +73,8 @@ class DockerPorts():
         return base # FIXME
 
     def _getDockerOptions(self, config, profilename, innerport):
-        out = self._addDockerOptionsFromConfigSection(config, "dockeroptions")
+        out = {}
+        out = self._addDockerOptionsFromConfigSection(config, "dockeroptions", {})
         out = self._addDockerOptionsFromConfigSection(config, "{}{}".format(self.CONFIG_DOCKEROPTIONSPREFIX, profilename), out)
 
         out["detach"] = True
