@@ -198,11 +198,11 @@ class DockerInstance():
     def getContainerName(self):
         return self._containername
 
-    def getMiddlePort(self):
+    def getMappedPort(self, inp):
         try:
-            return int(list(self._instance.attrs["NetworkSettings"]["Ports"].values())[0][0]["HostPort"])
+            return int(self._instance.attrs["NetworkSettings"]["Ports"]["{}/tcp".format(inp)][0]["HostPort"])
         except Exception as e:
-            logger.warn("Failed to get port information from {}: {}".format(self.getInstanceID(), e))
+            logger.warn("Failed to get port information for port {} from {}: {}".format(inp, self.getInstanceID(), e))
         return None
 
     def getProfileName(self):
