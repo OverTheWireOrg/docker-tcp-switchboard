@@ -34,14 +34,16 @@ class DockerPorts():
 
     def _readProfileConfig(self, config, profilename):
         fullprofilename = "{}{}".format(self.CONFIG_PROFILEPREFIX, profilename)
-        innerport = int(config[fullprofilename]["innerport"])
+        innerport = self._parseInt(config[fullprofilename]["innerport"])
+        checkupport = self._parseInt(config[fullprofilename]["checkupport"]) if "checkupport" in config[fullprofilename] else innerport
         return {
             "outerport": int(config[fullprofilename]["outerport"]),
             "innerport": innerport,
             "containername": config[fullprofilename]["container"],
+            "checkupport": checkupport,
             "limit": self._parseInt(config[fullprofilename]["limit"]) if "limit" in config[fullprofilename] else 0,
             "reuse": self._parseTruthy(config[fullprofilename]["reuse"]) if "reuse" in config[fullprofilename] else False,
-            "dockeroptions": self._getDockerOptions(config, profilename, innerport)
+            "dockeroptions": self._getDockerOptions(config, profilename, innerport, checkupport)
         }
 
     def _addDockerOptionsFromConfigSection(self, config, sectionname, base={}):
@@ -72,7 +74,7 @@ class DockerPorts():
             
         return base # FIXME
 
-    def _getDockerOptions(self, config, profilename, innerport):
+    def _getDockerOptions(self, config, profilename, innerport, checkupport):
         out = {}
         out = self._addDockerOptionsFromConfigSection(config, "dockeroptions", {})
         out = self._addDockerOptionsFromConfigSection(config, "{}{}".format(self.CONFIG_DOCKEROPTIONSPREFIX, profilename), out)
@@ -81,6 +83,7 @@ class DockerPorts():
         if "ports" not in out:
             out["ports"] = {}
         out["ports"][innerport] = None
+        out["ports"][checkupport] = None
         # cannot use detach and remove together
         # See https://github.com/docker/docker-py/issues/1477
         #out["remove"] = True
@@ -143,6 +146,8 @@ class DockerPorts():
         dockeroptions = self.imageParams[profilename]["dockeroptions"]
         imagelimit = self.imageParams[profilename]["limit"]
         reuse = self.imageParams[profilename]["reuse"]
+        innerport = self.imageParams[profilename]["innerport"]
+        checkupport = self.imageParams[profilename]["checkupport"]
 
         icount = 0
         if profilename in self.instancesByName:
@@ -158,7 +163,7 @@ class DockerPorts():
             logger.debug("Reusing existing instance for image {}".format(profilename))
             instance = self.instancesByName[profilename][0]
         else:
-            instance = DockerInstance(profilename, containername, dockeroptions)
+            instance = DockerInstance(profilename, containername, innerport, checkupport, dockeroptions)
             instance.start()
 
         if profilename not in self.instancesByName:
@@ -186,10 +191,12 @@ class DockerPorts():
 # After the docker container is started, we wait until the middleport becomes reachable
 # before returning
 class DockerInstance():
-    def __init__(self, profilename, containername, dockeroptions):
+    def __init__(self, profilename, containername, innerport, checkupport, dockeroptions):
         self._profilename = profilename
         self._containername = containername
         self._dockeroptions = dockeroptions
+        self._innerport = innerport
+        self._checkupport = checkupport
         self._instance = None
 
     def getDockerOptions(self):
@@ -204,6 +211,12 @@ class DockerInstance():
         except Exception as e:
             logger.warn("Failed to get port information for port {} from {}: {}".format(inp, self.getInstanceID(), e))
         return None
+
+    def getMiddlePort(self):
+        return self.getMappedPort(self._innerport)
+
+    def getMiddleCheckupPort(self):
+        return self.getMappedPort(self._checkupport)
 
     def getProfileName(self):
         return self._profilename
@@ -230,13 +243,13 @@ class DockerInstance():
             self.stop()
             return False
 
-        # wait until innerport is available
+        # wait until container's checkupport is available
         logger.debug("Started instance on middleport {} with ID {}".format(self.getMiddlePort(), self.getInstanceID()))
-        if self.__waitForOpenPort():
-            logger.debug("Started instance on middleport {} with ID {} has open port".format(self.getMiddlePort(), self.getInstanceID()))
+        if self.__waitForOpenPort(self.getMiddleCheckupPort()):
+            logger.debug("Started instance on middleport {} with ID {} has open port {}".format(self.getMiddlePort(), self.getInstanceID(), self.getMiddleCheckupPort()))
             return True
         else:
-            logger.debug("Started instance on middleport {} with ID {} has closed port".format(self.getMiddlePort(), self.getInstanceID()))
+            logger.debug("Started instance on middleport {} with ID {} has closed port {}".format(self.getMiddlePort(), self.getInstanceID(), self.getMiddleCheckupPort()))
             self.stop()
             return False
 
@@ -251,15 +264,15 @@ class DockerInstance():
             return False
         return True
 
-    def __isPortOpen(self, readtimeout=0.1):
+    def __isPortOpen(self, port, readtimeout=0.1):
         s = socket.socket()
         ret = False
-        logger.debug("Checking whether port {} is open...".format(self.getMiddlePort()))
-        if self.getMiddlePort() == None:
+        logger.debug("Checking whether port {} is open...".format(port))
+        if port == None:
             time.sleep(readtimeout)
         else:
             try:
-                s.connect(("0.0.0.0", self.getMiddlePort()))
+                s.connect(("0.0.0.0", port))
                 # just connecting is not enough, we should try to read and get at least 1 byte back
                 # since the daemon in the container might not have started accepting connections yet, while docker-proxy does
                 s.settimeout(readtimeout)
@@ -272,11 +285,11 @@ class DockerInstance():
         s.close()
         return ret
 
-    def __waitForOpenPort(self, timeout=5, step=0.1):
+    def __waitForOpenPort(self, port, timeout=5, step=0.1):
         started = time.time()
 
         while started + timeout >= time.time():
-            if self.__isPortOpen():
+            if self.__isPortOpen(port):
                 return True
             time.sleep(step)
         return False
