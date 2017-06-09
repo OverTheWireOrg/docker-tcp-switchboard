@@ -12,6 +12,7 @@ import docker
 import copy
 
 import logging
+import logging.handlers
 logger = logging.getLogger("docker-tcp-switchboard")
 
 # this is a global object that keeps track of the free ports
@@ -98,8 +99,10 @@ class DockerPorts():
 
         # set log file
         if "global" in config.sections() and "logfile" in config["global"]:
-            #global logger
-            handler = logging.FileHandler(config["global"]["logfile"])
+            if "global" in config.sections() and "rotatelogfileat" in config["global"]:
+                handler = logging.handlers.TimedRotatingFileHandler(config["global"]["logfile"], when=config["global"]["rotatelogfileat"])
+            else:
+                handler = logging.FileHandler(config["global"]["logfile"])
             formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             handler.setFormatter(formatter)
             logger.addHandler(handler)
