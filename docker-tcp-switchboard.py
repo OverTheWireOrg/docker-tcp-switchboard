@@ -374,7 +374,7 @@ if __name__ == "__main__":
 
     for (name, outerport) in portsAndNames.items():
         logger.debug("Listening on port {}".format(outerport))
-        reactor.listenTCP(outerport, DockerProxyFactory(name))
+        reactor.listenTCP(outerport, DockerProxyFactory(name), interface=sys.argv[2] if len(sys.argv) > 2 else '')
     reactor.run()
 
 
